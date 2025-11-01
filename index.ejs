@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Well Inventory</title>
+
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <link rel="stylesheet" href="/leaflet.css" />
+  <link rel="stylesheet" href="style.css" />
+  <style>
+    body {
+      padding-top: 70px;
+      display: flex;
+      height: calc(100vh - 70px);
+    }
+    .left-panel {
+      width: 20%;
+      overflow-y: auto;
+      padding: 10px;
+    }
+    .middle-panel {
+      width: 50%;
+      height: 100%;
+    }
+    .right-panel {
+      width: 30%;
+      overflow-y: auto;
+      padding: 10px;
+    }
+    #map {
+      height: 100%;
+    }
+  </style>
+</head>
+<body>
+
+<nav class="navbar navbar-dark navbar-expand-lg fixed-top">
+  <div class="container-fluid">
+    <a class="navbar-brand" href="/">🛢️ Well Inventory</a>
+    <div class="ms-auto d-flex">
+      <a class="nav-link custom-nav-btn" href="#">Home</a>
+      <a class="nav-link custom-nav-btn" href="#">Menu</a>
+      <a class="nav-link custom-nav-btn" href="#">Contact</a>
+    </div>
+  </div>
+</nav>
+
+<div class="left-panel bg-light border-end">
+  <h5 class="mt-3">Well List</h5>
+  <input type="text" id="search-bar" class="form-control mb-3" placeholder="Search wells..." />
+  <ul class="list-group" id="well-list">
+    <% wells.forEach(function(well) { %>
+      <li class="list-group-item">
+        <a href="/?id=<%= well.uwi %>" class="text-decoration-none"><%= well.uwi %></a>
+      </li>
+    <% }); %>
+  </ul>
+</div>
+
+<div class="middle-panel bg-white">
+  <div id="map"></div>
+</div>
+
+<div class="right-panel bg-light border-start">
+  <div id="well-info" class="d-none">
+    <div class="card shadow p-3" id="well-details"></div>
+  </div>
+  <div id="no-selection" class="text-muted mt-3">Select a well name or click a marker to view details.</div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="/leaflet.js"></script>
+
+<script>
+  const wells = <%- JSON.stringify(wells) %>;
+  const selectedWell = <%- JSON.stringify(selectedWell || {}) %>;
+
+  const map = L.map('map', {
+    minZoom: 5,
+    maxZoom: 12,
+    maxBounds: [[5, 65], [38, 100]],
+    maxBoundsViscosity: 1.0
+  }).setView([15.9129, 79.74], 7);
+
+  L.tileLayer('/layer_1/{z}/{x}/{y}.png', {
+    minZoom: 4,
+    maxZoom: 11,
+    attribution: 'Offline Map'
+  }).addTo(map);
+
+  fetch('/andhra_pradesh.geojson')
+    .then(res => res.json())
+    .then(data => {
+      L.geoJSON(data, { style: { color: 'blue', weight: 2 } }).addTo(map);
+    });
+
+  const defaultIcon = L.icon({
+    iconUrl: '/icons/marker-icon-blue.png',
+    iconSize: [25, 41],
+    iconAnchor: [12, 41],
+    shadowUrl: '/icons/marker-shadow.png'
+  });
+
+  const redIcon = L.icon({
+    iconUrl: '/icons/marker-icon-red.png',
+    iconSize: [25, 41],
+    iconAnchor: [12, 41],
+    shadowUrl: '/icons/marker-shadow.png'
+  });
+
+  let activeMarker = null;
+  const latLngs = [];
+
+  const wellInfoDiv = document.getElementById('well-info');
+  const wellDetailsDiv = document.getElementById('well-details');
+  const noSelectionDiv = document.getElementById('no-selection');
+
+  function displayWellInfo(well) {
+    if (well && well.uwi) {
+      wellInfoDiv.classList.remove('d-none');
+      noSelectionDiv.classList.add('d-none');
+      wellDetailsDiv.innerHTML = `
+        <h3 class="card-title">${well.uwi}</h3>
+        <p class="card-text"><strong>Well Location:</strong> ${well.well_location || 'N/A'}</p>
+        <p class="card-text"><strong>Total Depth:</strong> ${well.total_depth || 'N/A'} m</p>
+        <p class="card-text"><strong>Latitude:</strong> ${well.latitude || 'N/A'}</p>
+        <p class="card-text"><strong>Longitude:</strong> ${well.longitude || 'N/A'}</p>
+        <p class="card-text"><strong>Field Operator:</strong> ${well.field_operator || 'N/A'}</p>
+        <p class="card-text"><strong>On/Off Shore:</strong> ${well.on_off_shore || 'N/A'}</p>
+        <p class="card-text"><strong>Total Drilling Cost:</strong> ${well.total_drilling_cost || 'N/A'}</p>
+        <p class="card-text"><strong>Well Lease Name:</strong> ${well.well_lease_name || 'N/A'}</p>
+        <p class="card-text"><strong>X Coordinate:</strong> ${well.x_coordinate || 'N/A'}</p>
+        <p class="card-text"><strong>Y Coordinate:</strong> ${well.y_coordinate || 'N/A'}</p>
+        <p class="card-text"><strong>Remark:</strong> ${well.remark || 'N/A'}</p>
+        <p class="card-text"><strong>Current Status:</strong> ${well.current_status || 'N/A'}</p>
+        <p class="card-text"><strong>Status Symbol:</strong> ${well.status_symbol || 'N/A'}</p>
+        <p class="card-text"><strong>Spud Date:</strong> ${well.spud_date || 'N/A'}</p>
+        <p class="card-text"><strong>Completion Date:</strong> ${well.completion_date || 'N/A'}</p>
+        <a href="/download/${well.uwi}" class="btn btn-secondary-custom mt-3">📄 Download PDF</a>
+        <a href="/" class="btn btn-secondary-custom mt-3">Back to List</a>
+      `;
+    } else {
+      wellInfoDiv.classList.add('d-none');
+      noSelectionDiv.classList.remove('d-none');
+    }
+  }
+
+  wells.forEach(well => {
+    if (well.latitude && well.longitude) {
+      const latLng = [well.latitude, well.longitude];
+      latLngs.push(latLng);
+      const marker = L.marker(latLng, {
+        icon: (selectedWell && selectedWell.uwi === well.uwi) ? redIcon : defaultIcon
+      }).addTo(map);
+
+      marker.on('click', () => {
+        if (activeMarker) activeMarker.setIcon(defaultIcon);
+        marker.setIcon(redIcon);
+        activeMarker = marker;
+        displayWellInfo(well);
+      });
+
+      if (selectedWell && selectedWell.uwi === well.uwi) {
+        activeMarker = marker;
+        displayWellInfo(well);
+      }
+    }
+  });
+
+  if (latLngs.length > 0) {
+    map.fitBounds(L.latLngBounds(latLngs));
+  }
+
+  document.getElementById("search-bar").addEventListener("input", function () {
+    const query = this.value.toLowerCase();
+    const listItems = document.querySelectorAll("#well-list li");
+    listItems.forEach(item => {
+      const text = item.textContent.toLowerCase();
+      item.style.display = text.includes(query) ? "block" : "none";
+    });
+  });
+
+  if (selectedWell && selectedWell.uwi) {
+    displayWellInfo(selectedWell);
+  }
+</script>
+</body>
+</html>
